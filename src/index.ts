@@ -1,32 +1,60 @@
-/**
- * Welcome to Cloudflare Workers! This is your first worker.
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
-
 export interface Env {
-	// Example binding to KV. Learn more at https://developers.cloudflare.com/workers/runtime-apis/kv/
-	// MY_KV_NAMESPACE: KVNamespace;
-	//
-	// Example binding to Durable Object. Learn more at https://developers.cloudflare.com/workers/runtime-apis/durable-objects/
-	// MY_DURABLE_OBJECT: DurableObjectNamespace;
-	//
-	// Example binding to R2. Learn more at https://developers.cloudflare.com/workers/runtime-apis/r2/
-	// MY_BUCKET: R2Bucket;
-	//
-	// Example binding to a Service. Learn more at https://developers.cloudflare.com/workers/runtime-apis/service-bindings/
-	// MY_SERVICE: Fetcher;
-	//
-	// Example binding to a Queue. Learn more at https://developers.cloudflare.com/queues/javascript-apis/
-	// MY_QUEUE: Queue;
+	URL: string
 }
 
 export default {
 	async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-		return new Response('Hello World!');
+		try {
+
+			const fetched = await fetch(env.URL, request);
+
+			if (!fetched.ok) {
+				return new Response(fetched.statusText, {
+					status: fetched.status,
+				});
+			}
+
+			const text = await fetched.text();
+
+			const groups = text.split("##").slice(1); // splits by '##' and remove the first empty element (since its just the header)
+			const results = [];
+		
+			for (const groupText of groups) {
+				const [group, ...lines] = groupText.split("\n").filter(Boolean); // splits by newline and remove empty lines
+				const regex = /\|\s(?<code>\d+)\s\|\s(?<message>.+)\s\|/;
+		
+				for (const line of lines) {
+					const match = regex.exec(line);
+					if (match) {
+						const code = match?.[1] ?? "";
+						const message = match?.[2] ?? "";
+		
+						results.push({
+							group: group.trim(),
+							code: code.trim(),
+							message: message.trim(),
+						});
+					}
+				}
+			}
+		
+			const json = JSON.stringify(results, null, 2);
+
+			return new Response(json, {
+				headers: {
+					"content-type": "application/json;charset=UTF-8",
+				},
+			});
+		} catch (err) {
+			const error = err as Error;
+
+			return new Response(JSON.stringify({
+				error: true,
+				stack: error.stack,
+				message: error.message,
+			}), {
+				status: 500,
+			});
+		}
 	},
 };
